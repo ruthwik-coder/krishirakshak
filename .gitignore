@@ -1,0 +1,45 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+
+# Flutter
+.dart_tool/
+.packages
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Gradle
+android/.gradle/
+android/app/build/
+android/build/
+
+# Local config
+*.local
+.env
+.env.*
+
+# Server
+server/captures/
+server/best.pt
+server/__pycache__/
+*.pyc
+server/sounds/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+temp/

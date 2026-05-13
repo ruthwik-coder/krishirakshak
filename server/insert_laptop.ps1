@@ -1,0 +1,33 @@
+$headers = @{
+    "apikey" = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNuYnJ3Ymlidmxienp6dGVuZnpyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjYzNjY0NCwiZXhwIjoyMDg4MjEyNjQ0fQ.YOwlm4NOakmQxChSHQ2D-364zhg0FncfVF9-ReZOuck"
+    "Authorization" = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNuYnJ3Ymlidmxienp6dGVuZnpyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjYzNjY0NCwiZXhwIjoyMDg4MjEyNjQ0fQ.YOwlm4NOakmQxChSHQ2D-364zhg0FncfVF9-ReZOuck"
+    "Content-Type" = "application/json"
+    "Prefer" = "return=representation"
+}
+
+$userId = "1394378f-581f-4a69-9367-7d46b72649c3"
+
+$body = @{
+    "device_code" = "LAPTOP001"
+    "owner_id" = $userId
+    "area_name" = "My Laptop Camera"
+    "stream_url" = "https://resigned-shimmer-subtotal.ngrok-free.dev/video_feed"
+    "is_activated" = $true
+    "siren_active" = $false
+    "auto_deterrence" = $false
+    "is_live_requested" = $false
+    "is_talking" = $false
+} | ConvertTo-Json
+
+try {
+    Write-Host "Inserting LAPTOP001..."
+    $response = Invoke-RestMethod -Uri "https://cnbrwbibvlbzzztenfzr.supabase.co/rest/v1/device_registrations" -Headers $headers -Method Post -Body $body
+    Write-Host "Success!"
+    $response | ConvertTo-Json -Depth 3
+} catch {
+    Write-Host "Error: $($_.Exception.Message)"
+    $stream = $_.Exception.Response.GetResponseStream()
+    $reader = New-Object System.IO.StreamReader($stream)
+    $responseBody = $reader.ReadToEnd()
+    Write-Host "Response: $responseBody"
+}

@@ -1,0 +1,40 @@
+name: krishirakshak
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  supabase_flutter: ^2.8.0
+  http: ^1.2.0
+  cupertino_icons: ^1.0.8
+  flutter_local_notifications: ^17.2.2
+  record: ^6.1.1
+  permission_handler: ^11.3.1
+  path_provider: ^2.1.2
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: "^0.13.1"
+
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/assets/logo/app_logo_light.png" # Path to your high-res logo
+  min_sdk_android: 21
+
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo/app_logo.png
+    - assets/logo/app_logo_light.png
