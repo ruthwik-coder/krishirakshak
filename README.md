@@ -48,11 +48,29 @@ cd server
 # Install dependencies
 pip install -r requirements.txt
 
+# ⚠️ IMPORTANT: Place your trained YOLO model here before running
+# Copy best.pt to: server/best.pt
+
 # Run server
 python camera_server.py
 ```
 
-## Requirements
+## Model Setup
+
+**IMPORTANT:** The trained YOLO model (`best.pt`) is NOT included in the repo.
+
+1. Copy your trained model file (`best.pt`) to:
+   ```
+   server/best.pt
+   ```
+
+2. The server will automatically load it on startup:
+   ```
+   [MODEL] Loading best.pt...
+   [MODEL] YOLOv8 loaded successfully
+   ```
+
+### Detected Classes
 
 ### App
 - Flutter SDK 3.11+
