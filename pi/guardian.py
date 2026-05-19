@@ -19,19 +19,31 @@ import supabase as sb
 print("--- Krishi Rakshak RPi Guardian ---")
 
 # ── GPIO ──────────────────────────────────────────────────────
+GPIO_AVAILABLE = False
+GPIO = None
+
 try:
     import RPi.GPIO as GPIO
     GPIO.setmode(GPIO.BOARD)
     GPIO.setwarnings(False)
-    GPIO.setup(SPEAKER_RELAY_PIN, GPIO.OUT)
-    GPIO.output(SPEAKER_RELAY_PIN, GPIO.HIGH)
+    GPIO.setup(SPEAKER_RELAY_PIN, GPIO.OUT, initial=GPIO.HIGH)
     GPIO.setup(IR_SENSOR_PIN, GPIO.IN)
     GPIO.setup(RADAR_SENSOR_PIN, GPIO.IN)
     GPIO_AVAILABLE = True
-    print("[GPIO] Initialized")
+    print("[GPIO] Initialized (RPi.GPIO)")
 except Exception as e:
-    print(f"[GPIO] Not available (using mock): {e}")
-    GPIO_AVAILABLE = False
+    print(f"[GPIO] RPi.GPIO failed: {e}")
+    try:
+        from gpiozero import DigitalInputDevice, DigitalOutputDevice
+        # gpiozero uses BCM by default; map BOARD→BCM
+        _BOARD_TO_BCM = {3:2,5:3,7:4,8:14,10:15,11:17,12:18,13:27,15:22,16:23,18:24,19:10,21:9,22:25,23:11,24:8,26:7,29:5,31:6,32:12,33:13,35:19,36:16,37:26,38:20,40:21}
+        ir_sensor = DigitalInputDevice(_BOARD_TO_BCM[IR_SENSOR_PIN])
+        radar_sensor = DigitalInputDevice(_BOARD_TO_BCM[RADAR_SENSOR_PIN])
+        speaker_relay = DigitalOutputDevice(_BOARD_TO_BCM[SPEAKER_RELAY_PIN], initial_value=False)
+        GPIO_AVAILABLE = True
+        print("[GPIO] Initialized (gpiozero)")
+    except Exception as e2:
+        print(f"[GPIO] gpiozero also failed, using mock: {e2}")
 
 # ── MODEL ─────────────────────────────────────────────────────
 if not os.path.exists(MODEL_PATH):
@@ -56,17 +68,27 @@ running = True
 def sensor_tripped():
     if not GPIO_AVAILABLE:
         return False
-    return GPIO.input(IR_SENSOR_PIN) or GPIO.input(RADAR_SENSOR_PIN)
+    if GPIO is not None:
+        return GPIO.input(IR_SENSOR_PIN) or GPIO.input(RADAR_SENSOR_PIN)
+    return ir_sensor.is_active or radar_sensor.is_active
 
 
 def relay_on():
-    if GPIO_AVAILABLE:
+    if not GPIO_AVAILABLE:
+        return
+    if GPIO is not None:
         GPIO.output(SPEAKER_RELAY_PIN, GPIO.LOW)
+    else:
+        speaker_relay.on()
 
 
 def relay_off():
-    if GPIO_AVAILABLE:
+    if not GPIO_AVAILABLE:
+        return
+    if GPIO is not None:
         GPIO.output(SPEAKER_RELAY_PIN, GPIO.HIGH)
+    else:
+        speaker_relay.off()
 
 
 # ── AUDIO ────────────────────────────────────────────────────
@@ -321,7 +343,7 @@ def main():
     finally:
         running = False
         stop_stream()
-        if GPIO_AVAILABLE:
+        if GPIO is not None:
             GPIO.cleanup()
         print("[EXIT] Done")
 

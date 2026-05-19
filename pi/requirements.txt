@@ -4,3 +4,4 @@ numpy
 httpx
 flask
 RPi.GPIO
+gpiozero
