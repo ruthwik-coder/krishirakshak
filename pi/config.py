@@ -17,8 +17,8 @@ ALERT_COOLDOWN = int(os.getenv("ALERT_COOLDOWN", "10"))
 
 # GPIO pins (BOARD layout)
 SPEAKER_RELAY_PIN = int(os.getenv("SPEAKER_RELAY_PIN", "13"))
-IR_SENSOR_PIN = int(os.getenv("IR_SENSOR_PIN", "11"))
-RADAR_SENSOR_PIN = int(os.getenv("RADAR_SENSOR_PIN", "15"))
+IR_SENSOR_PIN = int(os.getenv("IR_SENSOR_PIN", "16"))
+RADAR_SENSOR_PIN = int(os.getenv("RADAR_SENSOR_PIN", "18"))
 
 # Audio
 PREDATOR_SOUNDS = {
