@@ -88,12 +88,13 @@ def register_device(stream_url=""):
 
 
 def update_stream_url(url):
-    full_url = f"{url}/video_feed"
+    if url and not url.endswith("/video_feed"):
+        url = f"{url}/video_feed"
     try:
         r = httpx.patch(
             f"{SUPABASE_URL}/rest/v1/device_registrations?device_code=eq.{DEVICE_CODE}",
             headers=HEADERS,
-            json={"stream_url": full_url},
+            json={"stream_url": url},
             timeout=10,
         )
         print(f"[UPDATE] Stream URL: {r.status_code}")
