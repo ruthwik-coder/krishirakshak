@@ -7,6 +7,7 @@ import threading
 import subprocess
 import signal
 from datetime import datetime
+from gpiozero import DigitalInputDevice, DigitalOutputDevice
 
 from config import (
     MODEL_PATH, CONFIDENCE_THRESHOLD, ALERT_COOLDOWN,
@@ -18,34 +19,32 @@ import supabase as sb
 
 print("--- Krishi Rakshak RPi Guardian ---")
 
-# ── GPIO ──────────────────────────────────────────────────────
-GPIO_AVAILABLE = False
-GPIO = None
+# ── GPIO INITIALIZATION (GPIOZERO FOR RPI 5) ──────────────────
+# Map physical BOARD pins to Raspberry Pi Broadcom (BCM) numbers
+_BOARD_TO_BCM = {
+    13: 27,  # Speaker Relay Signal
+    16: 23,  # IR Sensor Signal
+    18: 24   # Radar Sensor Signal
+}
 
+print("[GPIO] Initializing hardware lines via gpiozero...")
 try:
-    import RPi.GPIO as GPIO
-    GPIO.setmode(GPIO.BOARD)
-    GPIO.setwarnings(False)
-    GPIO.setup(SPEAKER_RELAY_PIN, GPIO.OUT, initial=GPIO.HIGH)
-    GPIO.setup(IR_SENSOR_PIN, GPIO.IN)
-    GPIO.setup(RADAR_SENSOR_PIN, GPIO.IN)
-    GPIO_AVAILABLE = True
-    print("[GPIO] Initialized (RPi.GPIO)")
-except Exception as e:
-    print(f"[GPIO] RPi.GPIO failed: {e}")
-    try:
-        from gpiozero import DigitalInputDevice, DigitalOutputDevice
-        # gpiozero uses BCM by default; map BOARD→BCM
-        _BOARD_TO_BCM = {3:2,5:3,7:4,8:14,10:15,11:17,12:18,13:27,15:22,16:23,18:24,19:10,21:9,22:25,23:11,24:8,26:7,29:5,31:6,32:12,33:13,35:19,36:16,37:26,38:20,40:21}
-        ir_sensor = DigitalInputDevice(_BOARD_TO_BCM[IR_SENSOR_PIN])
-        radar_sensor = DigitalInputDevice(_BOARD_TO_BCM[RADAR_SENSOR_PIN])
-        speaker_relay = DigitalOutputDevice(_BOARD_TO_BCM[SPEAKER_RELAY_PIN], initial_value=False)
-        GPIO_AVAILABLE = True
-        print("[GPIO] Initialized (gpiozero)")
-    except Exception as e2:
-        print(f"[GPIO] gpiozero also failed, using mock: {e2}")
+    ir_sensor = DigitalInputDevice(_BOARD_TO_BCM[IR_SENSOR_PIN])
+    radar_sensor = DigitalInputDevice(_BOARD_TO_BCM[RADAR_SENSOR_PIN])
+    
+    # active_high=False with initial_value=False means the relay pin boots up
+    # in an open/HIGH state, keeping your amplifier completely powered OFF.
+    speaker_relay = DigitalOutputDevice(
+        _BOARD_TO_BCM[SPEAKER_RELAY_PIN], 
+        active_high=False, 
+        initial_value=False
+    )
+    print("[GPIO] Hardware lines linked successfully.")
+except KeyError as e:
+    print(f"[GPIO] Setup Error: Physical Board pin {e} is not in the BCM translation table!")
+    exit(1)
 
-# ── MODEL ─────────────────────────────────────────────────────
+# ── MODEL INITIALIZATION ──────────────────────────────────────
 if not os.path.exists(MODEL_PATH):
     print(f"[MODEL] File not found: {MODEL_PATH}")
     print("[MODEL] Place best.onnx in the pi/ folder")
@@ -56,42 +55,30 @@ session = ort.InferenceSession(MODEL_PATH)
 input_name = session.get_inputs()[0].name
 print("[MODEL] ONNX loaded")
 
-# ── STATE ─────────────────────────────────────────────────────
+# ── STATE MANAGEMENT ──────────────────────────────────────────
 last_alert_time = 0
 siren_active = False
 auto_deterrence = False
 is_live_requested = False
-stream_process = None
 running = True
 
-# ── SENSOR HELPERS ────────────────────────────────────────────
+# ── SENSOR UTILITY METHODS ────────────────────────────────────
 def sensor_tripped():
-    if not GPIO_AVAILABLE:
-        return False
-    if GPIO is not None:
-        return GPIO.input(IR_SENSOR_PIN) or GPIO.input(RADAR_SENSOR_PIN)
+    """Returns True if either the IR wall beam or Radar sensor detects a breach."""
     return ir_sensor.is_active or radar_sensor.is_active
 
 
 def relay_on():
-    if not GPIO_AVAILABLE:
-        return
-    if GPIO is not None:
-        GPIO.output(SPEAKER_RELAY_PIN, GPIO.LOW)
-    else:
-        speaker_relay.on()
+    """Engages the relay circuit, sending power to the speaker amplifier."""
+    speaker_relay.on()
 
 
 def relay_off():
-    if not GPIO_AVAILABLE:
-        return
-    if GPIO is not None:
-        GPIO.output(SPEAKER_RELAY_PIN, GPIO.HIGH)
-    else:
-        speaker_relay.off()
+    """Drops the relay circuit, cutting power to the speaker amplifier."""
+    speaker_relay.off()
 
 
-# ── AUDIO ────────────────────────────────────────────────────
+# ── AUDIO HOOKS ───────────────────────────────────────────────
 def play_audio(url):
     data = sb.download_audio(url)
     if not data:
@@ -103,15 +90,17 @@ def play_audio(url):
         f.write(data)
 
     relay_on()
-    time.sleep(1.5)
+    print(">>> Waiting for amplifier to stabilize...")
+    time.sleep(2.0)  # Safe delay to allow amplifier capacitor bank to charge
 
     try:
         if ext == ".mp3":
             subprocess.run(["mpg123", "-q", tmp], timeout=8)
         else:
-            subprocess.run(["aplay", tmp], timeout=8)
-    except:
-        pass
+            # Force stereo channel duplication to match your USB audio device hardware
+            subprocess.run(["aplay", "-D", "plughw:1,0", tmp], timeout=8)
+    except Exception as e:
+        print(f"[AUDIO] Execution error: {e}")
 
     time.sleep(0.5)
     relay_off()
@@ -132,12 +121,13 @@ def activate_siren():
         f.write(data)
 
     relay_on()
-    time.sleep(1.5)
+    print(">>> Waiting for amplifier to stabilize...")
+    time.sleep(2.0)
 
     try:
         subprocess.run(["mpg123", "-q", tmp], timeout=8)
-    except:
-        pass
+    except Exception as e:
+        print(f"[SIREN] Playback error: {e}")
 
     relay_off()
     try:
@@ -149,14 +139,15 @@ def activate_siren():
 def play_predator_sound(detected_class):
     sound_url = PREDATOR_SOUNDS.get(detected_class.lower())
     if not sound_url:
-        print(f"[AUDIO] No sound for {detected_class}")
+        print(f"[AUDIO] No sound mapped for target: {detected_class}")
         return
-    print(f"[AUDIO] Predator sound for {detected_class}")
+    print(f"[AUDIO] Playing predator sound for: {detected_class}")
     play_audio(sound_url)
 
 
-# ── CAPTURE + INFERENCE ──────────────────────────────────────
+# ── CAPTURE + INFERENCE PIPELINE ──────────────────────────────
 def capture_frame():
+    """Triggers rpicam-still directly to output a fast image to volatile shared memory."""
     cmd = [
         "rpicam-still",
         "-t", "600",
@@ -209,11 +200,12 @@ def handle_detection(detected_classes, frame):
         return
     last_alert_time = now
 
-    print(f"[DETECT] {detected_classes}")
+    print(f"[DETECTED TARGETS] {detected_classes}")
 
     _, buf = cv2.imencode(".jpg", frame)
     image_data = buf.tobytes()
 
+    # Upload metrics asynchronously to prevent thread freezing
     image_url = sb.upload_image(image_data)
     for cls in detected_classes:
         sb.post_alert(cls, image_url)
@@ -228,47 +220,79 @@ def handle_detection(detected_classes, frame):
         activate_siren()
 
 
-# ── STREAM MANAGER ───────────────────────────────────────────
+# ── STREAM PROCESS MANAGEMENT ─────────────────────────────────
+stream_process = None
+ngrok_process = None
+
+
 def start_stream():
-    global stream_process
+    global stream_process, ngrok_process
     if stream_process is not None:
         return
-    print("[STREAM] Starting stream server")
+    print("[STREAM] Starting stream server...")
     script = os.path.join(os.path.dirname(__file__), "stream_server.py")
     stream_process = subprocess.Popen(
         ["python3", script],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    time.sleep(2)
+
+    print("[NGROK] Starting tunnel...")
+    ngrok_process = subprocess.Popen(
+        ["ngrok", "http", str(STREAM_PORT)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     time.sleep(3)
 
-    import httpx
     try:
-        ip = subprocess.run(
-            ["hostname", "-I"], capture_output=True, text=True
-        ).stdout.strip().split()[0]
-        url = f"http://{ip}:{STREAM_PORT}"
-        sb.update_stream_url(url)
-        print(f"[STREAM] URL updated: {url}")
-    except:
-        pass
+        import json, httpx
+        r = httpx.get("http://localhost:4040/api/tunnels", timeout=5)
+        tunnels = r.json().get("tunnels", [])
+        for t in tunnels:
+            if t.get("proto") == "https":
+                url = t["public_url"]
+                sb.update_stream_url(f"{url}/video_feed")
+                print(f"[STREAM] Public URL: {url}/video_feed")
+                break
+    except Exception as e:
+        print(f"[STREAM] ngrok failed, falling back to local IP: {e}")
+        try:
+            ip = subprocess.run(
+                ["hostname", "-I"], capture_output=True, text=True
+            ).stdout.strip().split()[0]
+            url = f"http://{ip}:{STREAM_PORT}"
+            sb.update_stream_url(f"{url}/video_feed")
+            print(f"[STREAM] Local fallback: {url}/video_feed")
+        except:
+            pass
 
 
 def stop_stream():
-    global stream_process
-    if stream_process is None:
-        return
-    print("[STREAM] Stopping stream server")
-    stream_process.terminate()
-    try:
-        stream_process.wait(timeout=5)
-    except:
-        stream_process.kill()
-    stream_process = None
+    global stream_process, ngrok_process
+    if stream_process is not None:
+        print("[STREAM] Stopping stream server...")
+        stream_process.terminate()
+        try:
+            stream_process.wait(timeout=5)
+        except:
+            stream_process.kill()
+        stream_process = None
+
+    if ngrok_process is not None:
+        print("[NGROK] Stopping tunnel...")
+        ngrok_process.terminate()
+        try:
+            ngrok_process.wait(timeout=5)
+        except:
+            ngrok_process.kill()
+        ngrok_process = None
+
     sb.update_stream_url("")
 
 
-# ── COMMAND POLLER ───────────────────────────────────────────
+# ── COMMAND POLLING SUBSYSTEM ─────────────────────────────────
 def poll_loop():
     global siren_active, auto_deterrence, is_live_requested
 
@@ -280,7 +304,7 @@ def poll_loop():
             new_live = device.get("is_live_requested", False)
 
             if new_siren and not siren_active:
-                print("[CMD] Siren ON")
+                print("[CMD] Cloud Request: Siren ON")
                 siren_active = True
                 threading.Thread(target=activate_siren, daemon=True).start()
             elif not new_siren:
@@ -298,54 +322,57 @@ def poll_loop():
         time.sleep(1)
 
 
-# ── MAIN ──────────────────────────────────────────────────────
+# ── ENTRY RUNTIME LOOP ────────────────────────────────────────
 def main():
     global running
 
     sb.register_device()
 
+    # Launch background Supabase controller thread
     poll_thread = threading.Thread(target=poll_loop, daemon=True)
     poll_thread.start()
 
-    print("\n=== Guardian active – waiting for sensors ===")
+    print("\n=== Engine Active: Monitoring Passive Perimeter Lines ===")
     print(f"  Device: {DEVICE_CODE}")
     print(f"  Model:  {MODEL_PATH}")
-    print(f"  IR pin: {IR_SENSOR_PIN}  Radar pin: {RADAR_SENSOR_PIN}")
-    print("=" * 40)
+    print(f"  IR Pin: {IR_SENSOR_PIN} (BOARD) -> BCM {_BOARD_TO_BCM[IR_SENSOR_PIN]}")
+    print(f"  Radar Pin: {RADAR_SENSOR_PIN} (BOARD) -> BCM {_BOARD_TO_BCM[RADAR_SENSOR_PIN]}")
+    print("=" * 55)
 
     try:
         while running:
             if sensor_tripped():
-                print(f"\n[SENSOR] Triggered at {datetime.now().strftime('%H:%M:%S')}")
+                print(f"\n[SENSOR BREACH] Signal registered at {datetime.now().strftime('%H:%M:%S')}")
 
                 ok = capture_frame()
                 if not ok:
-                    print("[CAM] Capture failed")
+                    print("[CAM ERROR] Hardware layer dropped frame request.")
                     time.sleep(0.5)
                     continue
 
                 result = run_inference()
-                os.remove(TEMP_IMAGE)
+                
+                # Delete temporary frame out of RAM disk space instantly
+                if os.path.exists(TEMP_IMAGE):
+                    os.remove(TEMP_IMAGE)
 
                 if result is None:
-                    print("[INF] No animal detected (false alarm)")
+                    print("[INF] Target context did not match animal vector profiles (False Alarm).")
                 else:
                     detected, frame = result
                     handle_detection(detected, frame)
 
-                print("[SENSOR] Cooldown 5s")
+                print("[SENSOR] Boundary locked for 5s cooldown...")
                 time.sleep(5)
 
             time.sleep(0.1)
 
     except KeyboardInterrupt:
-        print("\n[EXIT] Shutting down...")
+        print("\n[EXIT] Keyboard interrupt captured. Disarming systems safely...")
     finally:
         running = False
         stop_stream()
-        if GPIO is not None:
-            GPIO.cleanup()
-        print("[EXIT] Done")
+        print("[EXIT] Done. Core baseline safe offline.")
 
 
 if __name__ == "__main__":
