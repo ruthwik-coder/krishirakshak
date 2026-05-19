@@ -347,7 +347,7 @@ def poll_loop():
 
 # ── ENTRY RUNTIME LOOP ────────────────────────────────────────
 def main():
-    global running, _streaming_active
+    global running, _streaming_active, _last_sensor_time
 
     sb.register_device()
     _streaming_active = True
