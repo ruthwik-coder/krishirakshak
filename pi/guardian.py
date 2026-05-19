@@ -5,9 +5,9 @@ import os
 import time
 import threading
 import subprocess
-import signal
 from datetime import datetime
 from gpiozero import DigitalInputDevice, DigitalOutputDevice
+from flask import Flask, Response
 
 from config import (
     MODEL_PATH, CONFIDENCE_THRESHOLD, ALERT_COOLDOWN,
@@ -220,24 +220,65 @@ def handle_detection(detected_classes, frame):
         activate_siren()
 
 
-# ── STREAM PROCESS MANAGEMENT ─────────────────────────────────
-stream_process = None
+# ── STREAM SERVER (IN-PROCESS FLASK) ──────────────────────────
+stream_app = Flask(__name__)
+_streaming_active = False
 ngrok_process = None
 
 
-def start_stream():
-    global stream_process, ngrok_process
-    if stream_process is not None:
-        return
-    print("[STREAM] Starting stream server...")
-    script = os.path.join(os.path.dirname(__file__), "stream_server.py")
-    stream_process = subprocess.Popen(
-        ["python3", script],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    time.sleep(2)
+@stream_app.route("/video_feed")
+def video_feed():
+    def generate():
+        proc = subprocess.Popen(
+            ["rpicam-vid", "-t", "0", "--inline", "--codec", "mjpeg",
+             "--width", "640", "--height", "640", "--framerate", "15", "-o", "-"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        SOI = b"\xff\xd8"
+        EOI = b"\xff\xd9"
+        buf = b""
+        try:
+            while _streaming_active:
+                chunk = proc.stdout.read(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while True:
+                    start = buf.find(SOI)
+                    end = buf.find(EOI)
+                    if start != -1 and end != -1 and end > start:
+                        jpeg = buf[start : end + 2]
+                        buf = buf[end + 2 :]
+                        yield (
+                            b"--jpgboundary\r\n"
+                            b"Content-Type: image/jpeg\r\n\r\n"
+                            + jpeg
+                            + b"\r\n"
+                        )
+                    else:
+                        break
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except:
+                proc.kill()
 
+    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=--jpgboundary")
+
+
+@stream_app.route("/health")
+def health():
+    return {"status": "ok", "device_code": DEVICE_CODE}
+
+
+def run_flask():
+    stream_app.run(host="0.0.0.0", port=STREAM_PORT, debug=False, threaded=True)
+
+
+def start_ngrok():
+    global ngrok_process
     print("[NGROK] Starting tunnel...")
     ngrok_process = subprocess.Popen(
         ["ngrok", "http", str(STREAM_PORT)],
@@ -245,50 +286,37 @@ def start_stream():
         stderr=subprocess.DEVNULL,
     )
     time.sleep(3)
-
     try:
-        import json, httpx
+        import httpx
         r = httpx.get("http://localhost:4040/api/tunnels", timeout=5)
         tunnels = r.json().get("tunnels", [])
         for t in tunnels:
             if t.get("proto") == "https":
                 url = t["public_url"]
                 sb.update_stream_url(f"{url}/video_feed")
-                print(f"[STREAM] Public URL: {url}/video_feed")
-                break
+                print(f"[NGROK] Public URL: {url}/video_feed")
+                return
+        print("[NGROK] No HTTPS tunnel found")
     except Exception as e:
-        print(f"[STREAM] ngrok failed, falling back to local IP: {e}")
+        print(f"[NGROK] Error: {e}")
+        # fallback to local IP
         try:
-            ip = subprocess.run(
-                ["hostname", "-I"], capture_output=True, text=True
-            ).stdout.strip().split()[0]
-            url = f"http://{ip}:{STREAM_PORT}"
-            sb.update_stream_url(f"{url}/video_feed")
-            print(f"[STREAM] Local fallback: {url}/video_feed")
+            ip = subprocess.run(["hostname", "-I"], capture_output=True, text=True).stdout.strip().split()[0]
+            sb.update_stream_url(f"http://{ip}:{STREAM_PORT}/video_feed")
+            print(f"[NGROK] Local fallback: http://{ip}:{STREAM_PORT}/video_feed")
         except:
             pass
 
 
-def stop_stream():
-    global stream_process, ngrok_process
-    if stream_process is not None:
-        print("[STREAM] Stopping stream server...")
-        stream_process.terminate()
-        try:
-            stream_process.wait(timeout=5)
-        except:
-            stream_process.kill()
-        stream_process = None
-
+def stop_ngrok():
+    global ngrok_process
     if ngrok_process is not None:
-        print("[NGROK] Stopping tunnel...")
         ngrok_process.terminate()
         try:
             ngrok_process.wait(timeout=5)
         except:
             ngrok_process.kill()
         ngrok_process = None
-
     sb.update_stream_url("")
 
 
@@ -318,12 +346,17 @@ def poll_loop():
 
 # ── ENTRY RUNTIME LOOP ────────────────────────────────────────
 def main():
-    global running
+    global running, _streaming_active
 
     sb.register_device()
-    start_stream()
+    _streaming_active = True
 
-    # Launch background Supabase controller thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    time.sleep(1)
+
+    start_ngrok()
+
     poll_thread = threading.Thread(target=poll_loop, daemon=True)
     poll_thread.start()
 
@@ -366,7 +399,8 @@ def main():
         print("\n[EXIT] Keyboard interrupt captured. Disarming systems safely...")
     finally:
         running = False
-        stop_stream()
+        _streaming_active = False
+        stop_ngrok()
         print("[EXIT] Done. Core baseline safe offline.")
 
 
