@@ -5,6 +5,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "https://cnbrwbibvlbzzztenfzr.supabase.
 SUPABASE_PUBLIC = f"{SUPABASE_URL}/storage/v1/object/public"
 SERVICE_ROLE_KEY = os.getenv("SERVICE_ROLE_KEY",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNuYnJ3Ymlidmxienp6dGVuZnpyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjYzNjY0NCwiZXhwIjoyMDg4MjEyNjQ0fQ.YOwlm4NOakmQxChSHQ2D-364zhg0FncfVF9-ReZOuck"
+)
 
 DEVICE_CODE = os.getenv("DEVICE_CODE", "RPI001")
 OWNER_ID = os.getenv("OWNER_ID", "1394378f-581f-4a69-9367-7d46b72649c3")
