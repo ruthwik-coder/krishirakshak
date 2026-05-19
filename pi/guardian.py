@@ -311,13 +311,7 @@ def poll_loop():
                 siren_active = False
 
             auto_deterrence = new_auto
-
-            if new_live and not is_live_requested:
-                is_live_requested = True
-                start_stream()
-            elif not new_live and is_live_requested:
-                is_live_requested = False
-                stop_stream()
+            is_live_requested = new_live
 
         time.sleep(1)
 
@@ -327,6 +321,7 @@ def main():
     global running
 
     sb.register_device()
+    start_stream()
 
     # Launch background Supabase controller thread
     poll_thread = threading.Thread(target=poll_loop, daemon=True)
