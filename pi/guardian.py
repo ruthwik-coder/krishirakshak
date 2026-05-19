@@ -57,6 +57,7 @@ print("[MODEL] ONNX loaded")
 
 # ── STATE MANAGEMENT ──────────────────────────────────────────
 last_alert_time = 0
+_last_sensor_time = 0
 siren_active = False
 auto_deterrence = False
 is_live_requested = False
@@ -370,7 +371,19 @@ def main():
     try:
         while running:
             if sensor_tripped():
+                # Wait for cooldown if sensor keeps retriggering
+                now = time.time()
+                if now - _last_sensor_time < 3:
+                    time.sleep(0.1)
+                    continue
+                _last_sensor_time = now
+
                 print(f"\n[SENSOR BREACH] Signal registered at {datetime.now().strftime('%H:%M:%S')}")
+
+                if is_live_requested:
+                    print("[SKIP] Detection paused – camera is in use by live stream")
+                    time.sleep(5)
+                    continue
 
                 ok = capture_frame()
                 if not ok:
