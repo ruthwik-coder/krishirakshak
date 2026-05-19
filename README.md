@@ -17,10 +17,17 @@ Farm security system with real-time object detection, two-way audio, and mobile 
 krishirakshak/
 ├── lib/                 # Flutter app code
 ├── android/            # Android configuration
-├── server/             # Camera server (runs on laptop/PI)
+├── server/             # Camera server (laptop/desktop)
 │   ├── camera_server.py
 │   ├── requirements.txt
 │   └── SETUP.md
+├── pi/                 # Raspberry Pi server (lightweight)
+│   ├── guardian.py     #   Sensor-triggered detection loop
+│   ├── stream_server.py #   On-demand live streaming
+│   ├── supabase.py     #   Shared Supabase helpers
+│   ├── config.py       #   Configuration
+│   └── requirements.txt
+├── assets/
 ├── build/              # APK output
 └── README.md
 ```
@@ -30,72 +37,56 @@ krishirakshak/
 ### Flutter App
 
 ```bash
-# Get dependencies
 flutter pub get
-
-# Run on connected device
 flutter run
-
-# Build APK
 flutter build apk --release
 ```
 
-### Camera Server
+### Camera Server (Laptop)
 
 ```bash
 cd server
-
-# Install dependencies
 pip install -r requirements.txt
-
-# ⚠️ IMPORTANT: Place your trained YOLO model here before running
-# Copy best.pt to: server/best.pt
-
-# Run server
 python camera_server.py
 ```
 
-## Model Setup
+### Camera Server (Raspberry Pi)
 
-**IMPORTANT:** The trained YOLO model (`best.pt`) is NOT included in the repo.
+```bash
+cd pi
+pip install -r requirements.txt
+python guardian.py
+```
 
-1. Copy your trained model file (`best.pt`) to:
-   ```
-   server/best.pt
-   ```
+## Laptop vs Pi
 
-2. The server will automatically load it on startup:
-   ```
-   [MODEL] Loading best.pt...
-   [MODEL] YOLOv8 loaded successfully
-   ```
+| Feature | `server/` (Laptop) | `pi/` (Raspberry Pi) |
+|---------|-------------------|---------------------|
+| Model format | `best.pt` (PyTorch) | `best.onnx` (ONNX) |
+| Runtime | Ultralytics YOLOv8 (heavy) | ONNX Runtime (lightweight) |
+| Camera access | `cv2.VideoCapture` | `rpicam-still` / `rpicam-vid` |
+| Detection mode | 24/7 always-on | Sensor-triggered (IR + Radar) |
+| Live stream | Built into Flask server | Separate process on demand |
+| GPIO support | ❌ | ✅ IR, Radar, Speaker relay |
 
-### Detected Classes
+## Model Files
 
-### App
-- Flutter SDK 3.11+
-- Android SDK
-- Supabase account
+Place your trained models (not included in repo):
 
-### Camera Server
-- Python 3.8+
-- Webcam or IP camera
-- ngrok account (free tier works)
-- YOLOv8 model (best.pt)
+| Platform | Path | Format |
+|----------|------|--------|
+| Laptop | `server/best.pt` | PyTorch (YOLOv8) |
+| Pi | `pi/best.onnx` | ONNX (exported from YOLOv8) |
 
-## Configuration
+To export YOLOv8 to ONNX:
+```bash
+yolo export model=best.pt format=onnx imgsz=640
+# Copy best.onnx to pi/best.onnx
+```
 
-### Supabase Setup
+## Database Schema
 
-1. Create a Supabase project
-2. Get your URL and anon key
-3. Update keys in:
-   - `lib/main.dart`
-   - `server/camera_server.py`
-
-### Database Schema
-
-**device_registrations**
+### device_registrations
 ```sql
 device_code TEXT PRIMARY KEY
 owner_id UUID
@@ -108,7 +99,7 @@ is_live_requested BOOLEAN
 is_talking BOOLEAN
 ```
 
-**alerts**
+### alerts
 ```sql
 id BIGSERIAL PRIMARY KEY
 device_code TEXT
@@ -118,17 +109,23 @@ owner_id UUID
 created_at TIMESTAMPTZ
 ```
 
-### ngrok Setup
+## Pi Wiring (BOARD pin layout)
+
+| Pin | Component |
+|-----|-----------|
+| 11  | IR sensor (input) |
+| 15  | Radar sensor (input) |
+| 13  | Speaker relay (output) |
+
+## ngrok Setup
 
 ```bash
 ngrok config add-authtoken YOUR_AUTH_TOKEN
 ```
 
-Get token from: https://dashboard.ngrok.com
-
 ## Detected Classes
 
-The model detects: goat, buffalo, elephant, zebra, bird, pig, leopard, cheetah, bear, bull, horse, deer, monkey, sheep, person
+goat, buffalo, elephant, zebra, bird, pig, leopard, cheetah, bear, bull, horse, deer, monkey, sheep, person
 
 ## License
 

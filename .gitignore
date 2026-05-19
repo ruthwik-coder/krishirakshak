@@ -28,12 +28,16 @@ android/build/
 .env
 .env.*
 
-# Server
+# Server (Laptop)
 server/captures/
 server/best.pt
 server/__pycache__/
 *.pyc
 server/sounds/
+
+# Pi Server
+pi/best.onnx
+pi/__pycache__/
 
 # Logs
 *.log
