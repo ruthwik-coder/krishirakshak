@@ -96,7 +96,7 @@ def play_audio(url):
 
     try:
         if ext == ".mp3":
-            subprocess.run(["mpg123", "-q", tmp], timeout=8)
+            subprocess.run(["mpg123", "-q", "-o", "alsa", tmp], timeout=8)
         else:
             # Force stereo channel duplication to match your USB audio device hardware
             subprocess.run(["aplay", "-D", "plughw:1,0", tmp], timeout=8)
@@ -126,7 +126,7 @@ def activate_siren():
     time.sleep(2.0)
 
     try:
-        subprocess.run(["mpg123", "-q", tmp], timeout=8)
+        subprocess.run(["mpg123", "-q", "-o", "alsa", tmp], timeout=8)
     except Exception as e:
         print(f"[SIREN] Playback error: {e}")
 
