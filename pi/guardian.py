@@ -80,6 +80,22 @@ def relay_off():
 
 
 # ── AUDIO HOOKS ───────────────────────────────────────────────
+# Check audio player availability
+_audio_player = None
+for _cmd in [["ffplay", "-version"], ["aplay", "--version"], ["mpg123", "--version"]]:
+    try:
+        subprocess.run(_cmd, capture_output=True, timeout=3)
+        _audio_player = _cmd[0]
+        break
+    except:
+        continue
+
+if _audio_player:
+    print(f"[AUDIO] Using player: {_audio_player}")
+else:
+    print("[AUDIO] WARNING: No audio player found (install ffmpeg or alsa-utils)")
+
+
 def _local_path(url):
     name = url.rsplit("/", 1)[-1]
     path = os.path.join(SOUNDS_DIR, name)
@@ -98,16 +114,24 @@ def _local_path(url):
 
 def play_audio(url):
     path = _local_path(url)
-    if not path:
+    if not path or not _audio_player:
         return
 
     relay_on()
     print(">>> Waiting for amplifier to stabilize...")
     time.sleep(2.0)
 
-    ext = ".mp3" if ".mp3" in url else ".wav"
     try:
-        subprocess.run(["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "quiet", path], timeout=15)
+        if _audio_player == "ffplay":
+            subprocess.run(["ffplay", "-nodisp", "-autoexit", "-hide_banner", path],
+                          timeout=15, capture_output=True)
+        elif _audio_player == "aplay":
+            subprocess.run(["aplay", path], timeout=15)
+        elif _audio_player == "mpg123":
+            subprocess.run(["mpg123", "-q", path], timeout=15)
+        print("[AUDIO] Playback complete")
+    except subprocess.TimeoutExpired:
+        print("[AUDIO] Playback timed out")
     except Exception as e:
         print(f"[AUDIO] Playback error: {e}")
 
@@ -118,7 +142,7 @@ def play_audio(url):
 def activate_siren():
     print("[SIREN] Playing siren")
     path = _local_path(SIREN_URL)
-    if not path:
+    if not path or not _audio_player:
         return
 
     relay_on()
@@ -126,7 +150,16 @@ def activate_siren():
     time.sleep(2.0)
 
     try:
-        subprocess.run(["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "quiet", path], timeout=15)
+        if _audio_player == "ffplay":
+            subprocess.run(["ffplay", "-nodisp", "-autoexit", "-hide_banner", path],
+                          timeout=15, capture_output=True)
+        elif _audio_player == "aplay":
+            subprocess.run(["aplay", path], timeout=15)
+        elif _audio_player == "mpg123":
+            subprocess.run(["mpg123", "-q", path], timeout=15)
+        print("[SIREN] Playback complete")
+    except subprocess.TimeoutExpired:
+        print("[SIREN] Playback timed out")
     except Exception as e:
         print(f"[SIREN] Playback error: {e}")
 
