@@ -108,9 +108,9 @@ def play_audio(url):
     ext = ".mp3" if ".mp3" in url else ".wav"
     try:
         if ext == ".mp3":
-            subprocess.run(["mpg123", "-q", "-o", "alsa", path], timeout=8)
+            subprocess.run(["mpg123", "-q", path], timeout=15)
         else:
-            subprocess.run(["aplay", "-D", "plughw:1,0", path], timeout=8)
+            subprocess.run(["aplay", "-D", "plughw:1,0", path], timeout=15)
     except Exception as e:
         print(f"[AUDIO] Playback error: {e}")
 
@@ -129,7 +129,7 @@ def activate_siren():
     time.sleep(2.0)
 
     try:
-        subprocess.run(["mpg123", "-q", "-o", "alsa", path], timeout=8)
+        subprocess.run(["mpg123", "-q", path], timeout=15)
     except Exception as e:
         print(f"[SIREN] Playback error: {e}")
 
@@ -285,27 +285,30 @@ def start_ngrok():
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    time.sleep(3)
-    try:
-        import httpx
-        r = httpx.get("http://localhost:4040/api/tunnels", timeout=5)
-        tunnels = r.json().get("tunnels", [])
-        for t in tunnels:
-            if t.get("proto") == "https":
-                url = t["public_url"]
-                sb.update_stream_url(f"{url}/video_feed")
-                print(f"[NGROK] Public URL: {url}/video_feed")
-                return
-        print("[NGROK] No HTTPS tunnel found")
-    except Exception as e:
-        print(f"[NGROK] Error: {e}")
-        # fallback to local IP
+
+    for attempt in range(5):
+        time.sleep(2)
         try:
-            ip = subprocess.run(["hostname", "-I"], capture_output=True, text=True).stdout.strip().split()[0]
-            sb.update_stream_url(f"http://{ip}:{STREAM_PORT}/video_feed")
-            print(f"[NGROK] Local fallback: http://{ip}:{STREAM_PORT}/video_feed")
+            import httpx
+            r = httpx.get("http://localhost:4040/api/tunnels", timeout=5)
+            tunnels = r.json().get("tunnels", [])
+            for t in tunnels:
+                if t.get("proto") == "https":
+                    url = t["public_url"]
+                    sb.update_stream_url(f"{url}/video_feed")
+                    print(f"[NGROK] Public URL: {url}/video_feed")
+                    return
         except:
             pass
+        print(f"[NGROK] Waiting for tunnel (attempt {attempt+1}/5)...")
+
+    print("[NGROK] Failed after 5 attempts, using local IP")
+    try:
+        ip = subprocess.run(["hostname", "-I"], capture_output=True, text=True).stdout.strip().split()[0]
+        sb.update_stream_url(f"http://{ip}:{STREAM_PORT}/video_feed")
+        print(f"[NGROK] Local fallback: http://{ip}:{STREAM_PORT}/video_feed")
+    except:
+        pass
 
 
 def stop_ngrok():
