@@ -80,90 +80,80 @@ def relay_off():
 
 
 # ── AUDIO HOOKS ───────────────────────────────────────────────
-# Check audio player availability
-_audio_player = None
-for _cmd in [["ffplay", "-version"], ["aplay", "--version"], ["mpg123", "--version"]]:
-    try:
-        subprocess.run(_cmd, capture_output=True, timeout=3)
-        _audio_player = _cmd[0]
-        break
-    except:
-        continue
-
-if _audio_player:
-    print(f"[AUDIO] Using player: {_audio_player}")
-else:
-    print("[AUDIO] WARNING: No audio player found (install ffmpeg or alsa-utils)")
+# Auto-detect USB audio device
+_ALSA_DEVICE = "plughw:1,0"
+try:
+    r = subprocess.run(["aplay", "-l"], capture_output=True, text=True, timeout=3)
+    for line in r.stdout.split("\n"):
+        if "USB" in line or "card" in line.lower():
+            import re
+            m = re.search(r"card (\d+)", line)
+            if m:
+                _ALSA_DEVICE = f"plughw:{m.group(1)},0"
+                break
+except:
+    pass
+print(f"[AUDIO] ALSA device: {_ALSA_DEVICE}")
 
 
 def _local_path(url):
     name = url.rsplit("/", 1)[-1]
     path = os.path.join(SOUNDS_DIR, name)
-    if not os.path.exists(path):
-        os.makedirs(SOUNDS_DIR, exist_ok=True)
-        print(f"[AUDIO] Downloading {name}...")
-        data = sb.download_audio(url)
-        if data:
-            with open(path, "wb") as f:
-                f.write(data)
-            print(f"[AUDIO] Cached: {path}")
-        else:
-            return None
-    return path
+    # Convert .mp3 to .wav at cache time (aplay can't play mp3)
+    if name.endswith(".mp3"):
+        wav_path = path.replace(".mp3", ".wav")
+        if not os.path.exists(wav_path):
+            os.makedirs(SOUNDS_DIR, exist_ok=True)
+            print(f"[AUDIO] Downloading {name}...")
+            data = sb.download_audio(url)
+            if data:
+                # Save temp mp3
+                with open(path, "wb") as f:
+                    f.write(data)
+                # Convert to wav using ffmpeg
+                subprocess.run(["ffmpeg", "-y", "-i", path, "-ac", "2", wav_path],
+                              capture_output=True, timeout=30)
+                os.remove(path)
+                print(f"[AUDIO] Cached: {wav_path}")
+        return wav_path if os.path.exists(wav_path) else None
+    else:
+        if not os.path.exists(path):
+            os.makedirs(SOUNDS_DIR, exist_ok=True)
+            print(f"[AUDIO] Downloading {name}...")
+            data = sb.download_audio(url)
+            if data:
+                with open(path, "wb") as f:
+                    f.write(data)
+                print(f"[AUDIO] Cached: {path}")
+        return path if os.path.exists(path) else None
 
 
-def play_audio(url):
-    path = _local_path(url)
-    if not path or not _audio_player:
-        return
-
+def _play_file(path):
     relay_on()
     print(">>> Waiting for amplifier to stabilize...")
     time.sleep(2.0)
-
     try:
-        if _audio_player == "ffplay":
-            subprocess.run(["ffplay", "-nodisp", "-autoexit", "-hide_banner", path],
-                          timeout=15, capture_output=True)
-        elif _audio_player == "aplay":
-            subprocess.run(["aplay", path], timeout=15)
-        elif _audio_player == "mpg123":
-            subprocess.run(["mpg123", "-q", path], timeout=15)
+        subprocess.run(["aplay", "-D", _ALSA_DEVICE, path], timeout=15)
         print("[AUDIO] Playback complete")
     except subprocess.TimeoutExpired:
         print("[AUDIO] Playback timed out")
     except Exception as e:
         print(f"[AUDIO] Playback error: {e}")
-
     time.sleep(0.5)
     relay_off()
+
+
+def play_audio(url):
+    path = _local_path(url)
+    if path:
+        _play_file(path)
 
 
 def activate_siren():
     print("[SIREN] Playing siren")
     path = _local_path(SIREN_URL)
-    if not path or not _audio_player:
-        return
-
-    relay_on()
-    print(">>> Waiting for amplifier to stabilize...")
-    time.sleep(2.0)
-
-    try:
-        if _audio_player == "ffplay":
-            subprocess.run(["ffplay", "-nodisp", "-autoexit", "-hide_banner", path],
-                          timeout=15, capture_output=True)
-        elif _audio_player == "aplay":
-            subprocess.run(["aplay", path], timeout=15)
-        elif _audio_player == "mpg123":
-            subprocess.run(["mpg123", "-q", path], timeout=15)
-        print("[SIREN] Playback complete")
-    except subprocess.TimeoutExpired:
-        print("[SIREN] Playback timed out")
-    except Exception as e:
-        print(f"[SIREN] Playback error: {e}")
-
-    relay_off()
+    if path:
+        _play_file(path)
 
 
 def play_predator_sound(detected_class):
