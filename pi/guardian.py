@@ -80,19 +80,8 @@ def relay_off():
 
 
 # ── AUDIO HOOKS ───────────────────────────────────────────────
-# Auto-detect USB audio device
-_ALSA_DEVICE = "plughw:1,0"
-try:
-    r = subprocess.run(["aplay", "-l"], capture_output=True, text=True, timeout=3)
-    for line in r.stdout.split("\n"):
-        if "USB" in line or "card" in line.lower():
-            import re
-            m = re.search(r"card (\d+)", line)
-            if m:
-                _ALSA_DEVICE = f"plughw:{m.group(1)},0"
-                break
-except:
-    pass
+# USB audio card - change this if your card index differs
+_ALSA_DEVICE = "plughw:2,0"
 print(f"[AUDIO] ALSA device: {_ALSA_DEVICE}")
 
 
