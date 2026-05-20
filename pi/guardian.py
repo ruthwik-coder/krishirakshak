@@ -108,7 +108,7 @@ def play_audio(url):
     ext = ".mp3" if ".mp3" in url else ".wav"
     try:
         if ext == ".mp3":
-            subprocess.run(["mpg123", "-q", "-o", "alsa", path], timeout=8)
+            subprocess.run(["mpg123", "-q", path], timeout=8)
         else:
             subprocess.run(["aplay", "-D", "plughw:1,0", path], timeout=8)
     except Exception as e:
@@ -129,7 +129,7 @@ def activate_siren():
     time.sleep(2.0)
 
     try:
-        subprocess.run(["mpg123", "-q", "-o", "alsa", path], timeout=8)
+        subprocess.run(["mpg123", "-q", path], timeout=8)
     except Exception as e:
         print(f"[SIREN] Playback error: {e}")
 
