@@ -13,7 +13,7 @@ from config import (
     MODEL_PATH, CONFIDENCE_THRESHOLD, ALERT_COOLDOWN,
     SPEAKER_RELAY_PIN, IR_SENSOR_PIN, RADAR_SENSOR_PIN,
     PREDATOR_SOUNDS, SIREN_URL, CLASSES, TEMP_IMAGE,
-    DEVICE_CODE, STREAM_PORT,
+    DEVICE_CODE, STREAM_PORT, SOUNDS_DIR,
 )
 import supabase as sb
 
@@ -80,61 +80,60 @@ def relay_off():
 
 
 # ── AUDIO HOOKS ───────────────────────────────────────────────
-def play_audio(url):
-    data = sb.download_audio(url)
-    if not data:
-        return
+def _local_path(url):
+    name = url.rsplit("/", 1)[-1]
+    path = os.path.join(SOUNDS_DIR, name)
+    if not os.path.exists(path):
+        os.makedirs(SOUNDS_DIR, exist_ok=True)
+        print(f"[AUDIO] Downloading {name}...")
+        data = sb.download_audio(url)
+        if data:
+            with open(path, "wb") as f:
+                f.write(data)
+            print(f"[AUDIO] Cached: {path}")
+        else:
+            return None
+    return path
 
-    ext = ".mp3" if ".mp3" in url else ".wav"
-    tmp = f"/tmp/audio_{int(time.time())}{ext}"
-    with open(tmp, "wb") as f:
-        f.write(data)
+
+def play_audio(url):
+    path = _local_path(url)
+    if not path:
+        return
 
     relay_on()
     print(">>> Waiting for amplifier to stabilize...")
-    time.sleep(2.0)  # Safe delay to allow amplifier capacitor bank to charge
+    time.sleep(2.0)
 
+    ext = ".mp3" if ".mp3" in url else ".wav"
     try:
         if ext == ".mp3":
-            subprocess.run(["mpg123", "-q", "-o", "alsa", tmp], timeout=8)
+            subprocess.run(["mpg123", "-q", "-o", "alsa", path], timeout=8)
         else:
-            # Force stereo channel duplication to match your USB audio device hardware
-            subprocess.run(["aplay", "-D", "plughw:1,0", tmp], timeout=8)
+            subprocess.run(["aplay", "-D", "plughw:1,0", path], timeout=8)
     except Exception as e:
-        print(f"[AUDIO] Execution error: {e}")
+        print(f"[AUDIO] Playback error: {e}")
 
     time.sleep(0.5)
     relay_off()
-    try:
-        os.remove(tmp)
-    except:
-        pass
 
 
 def activate_siren():
     print("[SIREN] Playing siren")
-    data = sb.download_audio(SIREN_URL)
-    if not data:
+    path = _local_path(SIREN_URL)
+    if not path:
         return
-
-    tmp = "/tmp/siren.mp3"
-    with open(tmp, "wb") as f:
-        f.write(data)
 
     relay_on()
     print(">>> Waiting for amplifier to stabilize...")
     time.sleep(2.0)
 
     try:
-        subprocess.run(["mpg123", "-q", "-o", "alsa", tmp], timeout=8)
+        subprocess.run(["mpg123", "-q", "-o", "alsa", path], timeout=8)
     except Exception as e:
         print(f"[SIREN] Playback error: {e}")
 
     relay_off()
-    try:
-        os.remove(tmp)
-    except:
-        pass
 
 
 def play_predator_sound(detected_class):
