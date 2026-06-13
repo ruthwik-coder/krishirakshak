@@ -82,6 +82,7 @@ def relay_off():
 # ── AUDIO HOOKS ───────────────────────────────────────────────
 _ALSA_DEVICE = "plughw:2,0"
 _SOUNDS_DIR = os.path.join(os.path.dirname(__file__), "sounds")
+_audio_lock = threading.Lock()
 
 
 def _cached_wav(url):
@@ -112,16 +113,21 @@ def _cached_wav(url):
 
 
 def _play_file(path):
-    relay_on()
-    print(">>> Waiting for amplifier to stabilize...")
-    time.sleep(2.0)
+    if not _audio_lock.acquire(blocking=False):
+        print(f"[AUDIO] Busy – skipping {path}")
+        return
     try:
+        relay_on()
+        print(">>> Waiting for amplifier to stabilize...")
+        time.sleep(2.0)
         subprocess.run(["aplay", "-D", _ALSA_DEVICE, path], timeout=15)
         print("[AUDIO] Playback complete")
     except Exception as e:
         print(f"[AUDIO] Playback error: {e}")
-    time.sleep(0.5)
-    relay_off()
+    finally:
+        time.sleep(0.5)
+        relay_off()
+        _audio_lock.release()
 
 
 def play_audio(url):
@@ -276,6 +282,9 @@ def health():
 
 @stream_app.route("/audio_stream", methods=["POST"])
 def audio_stream():
+    if not _audio_lock.acquire(blocking=False):
+        return "Busy", 429
+    proc = None
     try:
         proc = subprocess.Popen(
             ["aplay", "-D", _ALSA_DEVICE, "-f", "S16_LE", "-r", "16000", "-c", "1"],
@@ -289,9 +298,13 @@ def audio_stream():
     except Exception as e:
         print(f"[AUDIO] Talk playback error: {e}")
     finally:
-        if proc:
-            proc.stdin.close()
-            proc.wait(timeout=5)
+        if proc is not None:
+            try:
+                proc.stdin.close()
+                proc.wait(timeout=5)
+            except:
+                pass
+        _audio_lock.release()
     return "", 200
 
 
