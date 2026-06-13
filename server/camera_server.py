@@ -24,6 +24,17 @@ DEVICE_CODE = "LAPTOP001"
 DEVICE_PASSWORD = "krishi2024"
 
 MODEL_PATH = "best.pt"
+COCO_MODEL_PATH = "yolo26n.pt"
+COCO_CONFIDENCE_THRESHOLD = 0.5
+
+# Map COCO class IDs used (person=0, cow=19) → final class space (14, 15)
+COCO_TO_FINAL = {0: 14, 19: 15}
+FINAL_CLASS_NAMES = [
+    "buffalo", "elephant", "zebra", "bird", "pig",
+    "leopard", "cheetah", "bear", "bull", "horse",
+    "deer", "monkey", "goat", "sheep",
+    "person", "cow",
+]
 
 CAMERA_INDEX = 0
 CONFIDENCE_THRESHOLD = 0.6
@@ -47,6 +58,7 @@ PREDATOR_SOUNDS = {
     "monkey": f"{SUPABASE_PUBLIC}/assets/sounds/cow/Tiger_1.mp3",
     "sheep": f"{SUPABASE_PUBLIC}/assets/sounds/cow/Tiger_1.mp3",
     "person": f"{SUPABASE_PUBLIC}/assets/sounds/person/siren.mp3",
+    "cow": f"{SUPABASE_PUBLIC}/assets/sounds/cow/Tiger_1.mp3",
 }
 
 supabase_headers = {
@@ -60,6 +72,7 @@ class CameraServer:
     def __init__(self):
         self.app = Flask(__name__)
         self.model = None
+        self.coco_model = None
         self.cap = None
         self.is_running = False
         
@@ -72,11 +85,7 @@ class CameraServer:
         self.is_talking = False
         
         self.last_alert_time = 0
-        self.detected_classes = [
-            "goat", "buffalo", "elephant", "zebra", "bird", "pig", 
-            "leopard", "cheetah", "bear", "bull", "horse", 
-            "deer", "monkey", "sheep", "person"
-        ]
+        self.detected_classes = FINAL_CLASS_NAMES[:]
         
         self.audio_buffer = io.BytesIO()
         self.siren_thread = None
@@ -124,14 +133,21 @@ class CameraServer:
         print("[DETECT] Detection loop started")
     
     def _load_model(self):
-        print(f"[MODEL] Loading {MODEL_PATH}...")
+        print(f"[MODEL] Loading custom wildlife model: {MODEL_PATH}...")
         try:
             self.model = YOLO(MODEL_PATH)
-            print("[MODEL] YOLOv8 loaded successfully")
+            print(f"[MODEL] Custom model loaded ({len(FINAL_CLASS_NAMES) - 2} classes)")
         except Exception as e:
-            print(f"[MODEL] Failed to load model: {e}")
-            print("[MODEL] Using dummy detection for testing")
+            print(f"[MODEL] Failed to load custom model: {e}")
             self.model = None
+
+        print(f"[MODEL] Loading COCO model: {COCO_MODEL_PATH}...")
+        try:
+            self.coco_model = YOLO(COCO_MODEL_PATH)
+            print("[MODEL] COCO model loaded (filtering: person, cow)")
+        except Exception as e:
+            print(f"[MODEL] Failed to load COCO model: {e}")
+            self.coco_model = None
     
     def _start_camera(self):
         print("[CAMERA] Initializing...")
@@ -208,25 +224,38 @@ class CameraServer:
                        b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
     
     def _detect_objects(self, frame):
-        if self.model is None:
-            return []
-        
-        results = self.model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)
         detections = []
-        
-        for r in results:
-            boxes = r.boxes
-            for box in boxes:
-                cls_id = int(box.cls[0])
-                cls_name = self.model.names[cls_id]
-                conf = float(box.conf[0])
-                
-                detections.append({
-                    "class": cls_name,
-                    "confidence": conf,
-                    "bbox": box.xyxy[0].tolist()
-                })
-        
+
+        # ── Custom wildlife model (classes 0-13) ──
+        if self.model is not None:
+            results = self.model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)
+            for r in results:
+                for box in r.boxes:
+                    cls_id = int(box.cls[0])
+                    cls_name = self.model.names[cls_id]
+                    detections.append({
+                        "class": cls_name,
+                        "class_id": cls_id,
+                        "confidence": float(box.conf[0]),
+                        "bbox": box.xyxy[0].tolist(),
+                    })
+
+        # ── COCO model (filtered: person→14, cow→15) ──
+        if self.coco_model is not None:
+            results = self.coco_model(frame, conf=COCO_CONFIDENCE_THRESHOLD,
+                                      classes=list(COCO_TO_FINAL.keys()), verbose=False)
+            for r in results:
+                for box in r.boxes:
+                    coco_id = int(box.cls[0])
+                    final_id = COCO_TO_FINAL[coco_id]
+                    cls_name = FINAL_CLASS_NAMES[final_id]
+                    detections.append({
+                        "class": cls_name,
+                        "class_id": final_id,
+                        "confidence": float(box.conf[0]),
+                        "bbox": box.xyxy[0].tolist(),
+                    })
+
         return detections
     
     def _draw_detections(self, frame, detections):
@@ -567,7 +596,9 @@ class CameraServer:
         print("="*50)
         print(f"  Device Code: {DEVICE_CODE}")
         print(f"  Stream URL: {self.stream_url}")
-        print(f"  Model: {MODEL_PATH}")
+        print(f"  Custom Model: {MODEL_PATH}")
+        print(f"  COCO Model: {COCO_MODEL_PATH} (person + cow)")
+        print(f"  Total Classes: {len(FINAL_CLASS_NAMES)}")
         print("  Detection: 24/7 ACTIVE")
         print("="*50 + "\n")
         
