@@ -13,7 +13,7 @@ from config import (
     MODEL_PATH, CONFIDENCE_THRESHOLD, ALERT_COOLDOWN,
     SPEAKER_RELAY_PIN, IR_SENSOR_PIN, RADAR_SENSOR_PIN,
     PREDATOR_SOUNDS, SIREN_URL, CLASSES, TEMP_IMAGE,
-    DEVICE_CODE, STREAM_PORT, SOUNDS_DIR,
+    DEVICE_CODE, STREAM_PORT,
 )
 import supabase as sb
 
@@ -80,69 +80,61 @@ def relay_off():
 
 
 # ── AUDIO HOOKS ───────────────────────────────────────────────
-# USB audio card - change this if your card index differs
-_ALSA_DEVICE = "plughw:2,0"
-print(f"[AUDIO] ALSA device: {_ALSA_DEVICE}")
+def play_audio(url):
+    data = sb.download_audio(url)
+    if not data:
+        return
 
+    ext = ".mp3" if ".mp3" in url else ".wav"
+    tmp = f"/tmp/audio_{int(time.time())}{ext}"
+    with open(tmp, "wb") as f:
+        f.write(data)
 
-def _local_path(url):
-    name = url.rsplit("/", 1)[-1]
-    path = os.path.join(SOUNDS_DIR, name)
-    # Convert .mp3 to .wav at cache time (aplay can't play mp3)
-    if name.endswith(".mp3"):
-        wav_path = path.replace(".mp3", ".wav")
-        if not os.path.exists(wav_path):
-            os.makedirs(SOUNDS_DIR, exist_ok=True)
-            print(f"[AUDIO] Downloading {name}...")
-            data = sb.download_audio(url)
-            if data:
-                # Save temp mp3
-                with open(path, "wb") as f:
-                    f.write(data)
-                # Convert to wav using ffmpeg
-                subprocess.run(["ffmpeg", "-y", "-i", path, "-ac", "2", wav_path],
-                              capture_output=True, timeout=30)
-                os.remove(path)
-                print(f"[AUDIO] Cached: {wav_path}")
-        return wav_path if os.path.exists(wav_path) else None
-    else:
-        if not os.path.exists(path):
-            os.makedirs(SOUNDS_DIR, exist_ok=True)
-            print(f"[AUDIO] Downloading {name}...")
-            data = sb.download_audio(url)
-            if data:
-                with open(path, "wb") as f:
-                    f.write(data)
-                print(f"[AUDIO] Cached: {path}")
-        return path if os.path.exists(path) else None
-
-
-def _play_file(path):
     relay_on()
     print(">>> Waiting for amplifier to stabilize...")
-    time.sleep(2.0)
+    time.sleep(2.0)  # Safe delay to allow amplifier capacitor bank to charge
+
     try:
-        subprocess.run(["aplay", "-D", _ALSA_DEVICE, path], timeout=15)
-        print("[AUDIO] Playback complete")
-    except subprocess.TimeoutExpired:
-        print("[AUDIO] Playback timed out")
+        if ext == ".mp3":
+            subprocess.run(["mpg123", "-q", tmp], timeout=8)
+        else:
+            # Force stereo channel duplication to match your USB audio device hardware
+            subprocess.run(["aplay", "-D", "plughw:1,0", tmp], timeout=8)
     except Exception as e:
-        print(f"[AUDIO] Playback error: {e}")
+        print(f"[AUDIO] Execution error: {e}")
+
     time.sleep(0.5)
     relay_off()
-
-
-def play_audio(url):
-    path = _local_path(url)
-    if path:
-        _play_file(path)
+    try:
+        os.remove(tmp)
+    except:
+        pass
 
 
 def activate_siren():
     print("[SIREN] Playing siren")
-    path = _local_path(SIREN_URL)
-    if path:
-        _play_file(path)
+    data = sb.download_audio(SIREN_URL)
+    if not data:
+        return
+
+    tmp = "/tmp/siren.mp3"
+    with open(tmp, "wb") as f:
+        f.write(data)
+
+    relay_on()
+    print(">>> Waiting for amplifier to stabilize...")
+    time.sleep(2.0)
+
+    try:
+        subprocess.run(["mpg123", "-q", tmp], timeout=8)
+    except Exception as e:
+        print(f"[SIREN] Playback error: {e}")
+
+    relay_off()
+    try:
+        os.remove(tmp)
+    except:
+        pass
 
 
 def play_predator_sound(detected_class):

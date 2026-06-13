@@ -49,4 +49,3 @@ CLASSES = {
 
 TEMP_IMAGE = "/dev/shm/snapshot.jpg"
 STREAM_PORT = 5000
-SOUNDS_DIR = os.path.join(os.path.dirname(__file__), "sounds")
