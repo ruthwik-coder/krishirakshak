@@ -14,6 +14,8 @@ from config import (
     SPEAKER_RELAY_PIN, IR_SENSOR_PIN, RADAR_SENSOR_PIN,
     PREDATOR_SOUNDS, SIREN_URL, CLASSES, TEMP_IMAGE,
     DEVICE_CODE, STREAM_PORT,
+    COCO_MODEL_PATH, COCO_CONFIDENCE_THRESHOLD,
+    COCO_TO_FINAL, FINAL_CLASS_NAMES,
 )
 import supabase as sb
 
@@ -53,7 +55,16 @@ if not os.path.exists(MODEL_PATH):
 print(f"[MODEL] Loading {MODEL_PATH}...")
 session = ort.InferenceSession(MODEL_PATH)
 input_name = session.get_inputs()[0].name
-print("[MODEL] ONNX loaded")
+print("[MODEL] Custom ONNX loaded")
+
+coco_session = None
+if os.path.exists(COCO_MODEL_PATH):
+    print(f"[MODEL] Loading {COCO_MODEL_PATH}...")
+    coco_session = ort.InferenceSession(COCO_MODEL_PATH)
+    coco_input_name = coco_session.get_inputs()[0].name
+    print(f"[MODEL] COCO ONNX loaded (filtering: person→14, cow→15)")
+else:
+    print(f"[MODEL] COCO model not found ({COCO_MODEL_PATH}) – person/cow not detected")
 
 # ── STATE MANAGEMENT ──────────────────────────────────────────
 last_alert_time = 0
@@ -178,6 +189,9 @@ def run_inference():
     input_data = np.transpose(input_data, (2, 0, 1))
     input_data = np.expand_dims(input_data, axis=0)
 
+    detected = set()
+
+    # ── Custom wildlife model (raw ONNX: 4 + num_classes scores per box) ──
     outputs = session.run(None, {input_name: input_data})
     output_data = np.squeeze(outputs[0])
     output_data = np.transpose(output_data, (1, 0))
@@ -187,15 +201,24 @@ def run_inference():
     max_class_ids = np.argmax(scores, axis=1)
 
     confident = np.where(max_scores > CONFIDENCE_THRESHOLD)[0]
-    if len(confident) == 0:
-        return None
-
-    detected = set()
     for idx in confident:
         class_id = max_class_ids[idx]
         name = CLASSES.get(class_id, f"unknown_{class_id}")
         detected.add(name)
 
+    # ── COCO model (post-processed ONNX: 300 x [x1,y1,x2,y2,conf,cls]) ──
+    if coco_session is not None:
+        coco_outputs = coco_session.run(None, {coco_input_name: input_data})
+        coco_data = np.squeeze(coco_outputs[0])  # (300, 6)
+
+        for det in coco_data:
+            conf, cls_id = det[4], int(det[5])
+            if conf > COCO_CONFIDENCE_THRESHOLD and cls_id in COCO_TO_FINAL:
+                final_id = COCO_TO_FINAL[cls_id]
+                detected.add(FINAL_CLASS_NAMES[final_id])
+
+    if not detected:
+        return None
     return list(detected), frame
 
 

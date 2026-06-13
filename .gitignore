@@ -37,6 +37,7 @@ server/sounds/
 
 # Pi Server
 pi/best.onnx
+pi/yolo26n.onnx
 pi/__pycache__/
 
 # Logs

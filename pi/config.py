@@ -12,7 +12,9 @@ OWNER_ID = os.getenv("OWNER_ID", "1394378f-581f-4a69-9367-7d46b72649c3")
 
 # Model
 MODEL_PATH = os.getenv("MODEL_PATH", "best.onnx")
+COCO_MODEL_PATH = os.getenv("COCO_MODEL_PATH", "yolo26n.onnx")
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.4"))
+COCO_CONFIDENCE_THRESHOLD = float(os.getenv("COCO_CONFIDENCE_THRESHOLD", "0.5"))
 ALERT_COOLDOWN = int(os.getenv("ALERT_COOLDOWN", "10"))
 
 # GPIO pins (BOARD layout)
@@ -37,15 +39,21 @@ PREDATOR_SOUNDS = {
     "monkey":   f"{SUPABASE_PUBLIC}/assets/sounds/cow/Tiger_1.mp3",
     "sheep":    f"{SUPABASE_PUBLIC}/assets/sounds/cow/Tiger_1.mp3",
     "person":   f"{SUPABASE_PUBLIC}/assets/sounds/person/siren.mp3",
+    "cow":      f"{SUPABASE_PUBLIC}/assets/sounds/cow/Tiger_1.mp3",
 }
 SIREN_URL = f"{SUPABASE_PUBLIC}/assets/siren.mp3"
 
-# YOLO class names (14 classes, matching your model)
+# YOLO class names (16 classes: 14 wildlife + person + cow)
 CLASSES = {
     0: "buffalo", 1: "elephant", 2: "zebra", 3: "bird", 4: "pig",
     5: "leopard", 6: "cheetah", 7: "bear", 8: "bull", 9: "horse",
     10: "deer", 11: "monkey", 12: "goat", 13: "sheep", 14: "person",
+    15: "cow",
 }
+
+# COCO class IDs → final class IDs
+COCO_TO_FINAL = {0: 14, 19: 15}
+FINAL_CLASS_NAMES = list(CLASSES.values())
 
 TEMP_IMAGE = "/dev/shm/snapshot.jpg"
 STREAM_PORT = 5000
