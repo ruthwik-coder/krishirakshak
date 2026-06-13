@@ -7,7 +7,7 @@ import threading
 import subprocess
 from datetime import datetime
 from gpiozero import DigitalInputDevice, DigitalOutputDevice
-from flask import Flask, Response
+from flask import Flask, Response, request
 
 from config import (
     MODEL_PATH, CONFIDENCE_THRESHOLD, ALERT_COOLDOWN,
@@ -272,6 +272,24 @@ def video_feed():
 @stream_app.route("/health")
 def health():
     return {"status": "ok", "device_code": DEVICE_CODE}
+
+
+@stream_app.route("/audio_stream", methods=["POST"])
+def audio_stream():
+    data = request.get_data()
+    if not data:
+        return "", 400
+    try:
+        proc = subprocess.Popen(
+            ["aplay", "-D", _ALSA_DEVICE, "-f", "S16_LE", "-r", "16000", "-c", "1"],
+            stdin=subprocess.PIPE,
+        )
+        proc.stdin.write(data)
+        proc.stdin.close()
+        proc.wait(timeout=10)
+    except Exception as e:
+        print(f"[AUDIO] Talk playback error: {e}")
+    return "", 200
 
 
 def run_flask():
