@@ -286,10 +286,25 @@ def audio_stream():
         return "Busy", 429
     proc = None
     try:
+        relay_on()
+        print("[AUDIO] Amplifier ON for talk...")
+        time.sleep(1.5)
+
+        # pre-buffer a few chunks before starting aplay to reduce underruns
+        prebuf = b""
+        for _ in range(4):
+            chunk = request.input_stream.read(4096)
+            if not chunk:
+                break
+            prebuf += chunk
+
         proc = subprocess.Popen(
             ["aplay", "-D", _ALSA_DEVICE, "-f", "S16_LE", "-r", "16000", "-c", "1"],
             stdin=subprocess.PIPE,
         )
+        if prebuf:
+            proc.stdin.write(prebuf)
+
         while True:
             chunk = request.input_stream.read(4096)
             if not chunk:
@@ -304,6 +319,7 @@ def audio_stream():
                 proc.wait(timeout=5)
             except:
                 pass
+        relay_off()
         _audio_lock.release()
     return "", 200
 
