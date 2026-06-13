@@ -400,21 +400,12 @@ class _FarmDashboardState extends State<FarmDashboard> {
     }
   }
 
-  Future<void> _onTalkStart() async {
-    if (_selectedDevice == null || _isTalking) return;
-
-    // Set UI state immediately for responsiveness
-    setState(() => _isTalking = true);
-
+  Future<bool> _onTalkStart() async {
     HapticFeedback.lightImpact();
 
     try {
       final status = await Permission.microphone.request();
-
-      if (!status.isGranted || !_isTalking) {
-        if (!_isTalking) _onTalkEnd();
-        return;
-      }
+      if (!status.isGranted) return false;
 
       final res = await supabase
           .from('device_registrations')
@@ -425,11 +416,8 @@ class _FarmDashboardState extends State<FarmDashboard> {
       final baseUrl = res['stream_url']?.toString() ?? "";
       if (baseUrl.isEmpty) {
         _showMsg("System not configured for this device");
-        _onTalkEnd();
-        return;
+        return false;
       }
-
-      if (!_isTalking) { _onTalkEnd(); return; }
 
       final audioUrl = baseUrl.replaceAll('/video_feed', '/audio_stream');
 
@@ -457,6 +445,7 @@ class _FarmDashboardState extends State<FarmDashboard> {
       await supabase
           .from('device_registrations')
           .update({'is_talking': true}).eq('device_code', _selectedDevice!).select('device_code');
+      return true;
     } catch (e) {
       debugPrint('Live Talk Error: $e');
       if (e is SocketException) {
@@ -464,13 +453,11 @@ class _FarmDashboardState extends State<FarmDashboard> {
       } else {
         _showMsg("Intercom Error: $e");
       }
-      _onTalkEnd();
+      return false;
     }
   }
 
   Future<void> _onTalkEnd() async {
-    if (!_isTalking) return;
-    setState(() => _isTalking = false);
     try {
       await _recorder.stop();
       await _liveAudioRequest?.close();
@@ -852,16 +839,25 @@ class _FarmDashboardState extends State<FarmDashboard> {
                           color: _isTalking ? Colors.green : Colors.white24,
                           isLarge: true,
                           onTapDown: (_) async {
-                            await _onTalkStart();
+                            if (_isTalking) return;
+                            setState(() => _isTalking = true);
                             setModalState(() {});
+                            if (!await _onTalkStart()) {
+                              setState(() => _isTalking = false);
+                              setModalState(() {});
+                            }
                           },
                           onTapUp: (_) async {
-                            await _onTalkEnd();
+                            if (!_isTalking) return;
+                            setState(() => _isTalking = false);
                             setModalState(() {});
+                            await _onTalkEnd();
                           },
                           onTapCancel: () async {
-                            await _onTalkEnd();
+                            if (!_isTalking) return;
+                            setState(() => _isTalking = false);
                             setModalState(() {});
+                            await _onTalkEnd();
                           },
                         ),
                         _buildModalControl(
@@ -900,6 +896,7 @@ class _FarmDashboardState extends State<FarmDashboard> {
   }
 
   void _stopLive() async {
+    setState(() => _isTalking = false);
     await _onTalkEnd();
     if (_selectedDevice != null) {
       try {
