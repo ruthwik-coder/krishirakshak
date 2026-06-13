@@ -276,19 +276,22 @@ def health():
 
 @stream_app.route("/audio_stream", methods=["POST"])
 def audio_stream():
-    data = request.get_data()
-    if not data:
-        return "", 400
     try:
         proc = subprocess.Popen(
             ["aplay", "-D", _ALSA_DEVICE, "-f", "S16_LE", "-r", "16000", "-c", "1"],
             stdin=subprocess.PIPE,
         )
-        proc.stdin.write(data)
-        proc.stdin.close()
-        proc.wait(timeout=10)
+        while True:
+            chunk = request.input_stream.read(4096)
+            if not chunk:
+                break
+            proc.stdin.write(chunk)
     except Exception as e:
         print(f"[AUDIO] Talk playback error: {e}")
+    finally:
+        if proc:
+            proc.stdin.close()
+            proc.wait(timeout=5)
     return "", 200
 
 
