@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 import os
+import re
 import time
 import threading
 import subprocess
@@ -59,15 +60,14 @@ def _detect_alsa_device():
             ["aplay", "-l"], capture_output=True, text=True, timeout=3
         ).stdout
         for line in out.splitlines():
-            if "USB" in line or "usb" in line.lower():
-                parts = line.split()
-                for i, p in enumerate(parts):
-                    if p.startswith("card"):
-                        card = p.rstrip(":").replace("card", "").strip()
-                        dev = parts[i + 1].replace("device", "").strip()
-                        alsa = f"plughw:{card},{dev}"
-                        print(f"[AUDIO] Detected USB audio: {alsa}")
-                        return alsa
+            if "USB" not in line:
+                continue
+            # Format: "card N: ... , device M: ..."
+            m = re.search(r"card\s+(\d+).*?device\s+(\d+)", line)
+            if m:
+                alsa = f"plughw:{m.group(1)},{m.group(2)}"
+                print(f"[AUDIO] Detected USB audio: {alsa}")
+                return alsa
     except Exception as e:
         print(f"[AUDIO] Auto-detect failed: {e}")
     print(f"[AUDIO] Using fallback: {_ALSA_DEVICE}")
