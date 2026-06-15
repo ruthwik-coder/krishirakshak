@@ -46,6 +46,34 @@ except KeyError as e:
     print(f"[GPIO] Setup Error: Physical Board pin {e} is not in the BCM translation table!")
     exit(1)
 
+# ── AUDIO DEVICE DETECTION ──────────────────────────────────
+_ALSA_DEVICE = "plughw:2,0"  # fallback
+_SOUNDS_DIR = os.path.join(os.path.dirname(__file__), "sounds")
+_audio_lock = threading.Lock()
+
+
+def _detect_alsa_device():
+    """Auto-detect USB audio card index so we don't hardcode card 2."""
+    try:
+        out = subprocess.run(
+            ["aplay", "-l"], capture_output=True, text=True, timeout=3
+        ).stdout
+        for line in out.splitlines():
+            if "USB" in line or "usb" in line.lower():
+                parts = line.split()
+                for i, p in enumerate(parts):
+                    if p.startswith("card"):
+                        card = p.rstrip(":").replace("card", "").strip()
+                        dev = parts[i + 1].replace("device", "").strip()
+                        alsa = f"plughw:{card},{dev}"
+                        print(f"[AUDIO] Detected USB audio: {alsa}")
+                        return alsa
+    except Exception as e:
+        print(f"[AUDIO] Auto-detect failed: {e}")
+    print(f"[AUDIO] Using fallback: {_ALSA_DEVICE}")
+    return _ALSA_DEVICE
+
+
 # ── MODEL INITIALIZATION ──────────────────────────────────────
 if not os.path.exists(MODEL_PATH):
     print(f"[MODEL] File not found: {MODEL_PATH}")
@@ -94,31 +122,6 @@ def relay_off():
 
 
 # ── AUDIO HOOKS ───────────────────────────────────────────────
-_ALSA_DEVICE = "plughw:2,0"  # fallback; overridden by auto-detect below
-_SOUNDS_DIR = os.path.join(os.path.dirname(__file__), "sounds")
-_audio_lock = threading.Lock()
-
-
-def _detect_alsa_device():
-    """Auto-detect USB audio card index so we don't hardcode card 2."""
-    try:
-        out = subprocess.run(
-            ["aplay", "-l"], capture_output=True, text=True, timeout=3
-        ).stdout
-        for line in out.splitlines():
-            if "USB" in line or "usb" in line.lower():
-                parts = line.split()
-                for i, p in enumerate(parts):
-                    if p.startswith("card"):
-                        card = p.rstrip(":").replace("card", "").strip()
-                        dev = parts[i + 1].replace("device", "").strip()
-                        alsa = f"plughw:{card},{dev}"
-                        print(f"[AUDIO] Detected USB audio: {alsa}")
-                        return alsa
-    except Exception as e:
-        print(f"[AUDIO] Auto-detect failed: {e}")
-    print(f"[AUDIO] Using fallback: {_ALSA_DEVICE}")
-    return _ALSA_DEVICE
 
 
 def _cached_wav(url):
